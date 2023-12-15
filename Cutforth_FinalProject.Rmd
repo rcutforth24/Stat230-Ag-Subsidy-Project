@@ -1,0 +1,855 @@
+---
+title: "Influences of farm demography on U.S. agricultural subsidies"
+author: "Becca Cutforth"
+date: "2023-12-15"
+output: pdf_document
+---
+
+\vspace{-1.5cm}
+
+## Abstract
+
+\vspace{-0.5cm}
+
+U.S. agricultural subsidy policies are contentious and highly influential. In order to better understand how these policies affect farmers, I analyzed how federal subsidies are influenced by various demographic variables. My results indicate that subsidies favor large, high-income farms that grow crops, especially corn. Furthermore, they indicate that subsidies may disfavor female farmers. My analyses indicate that farms in the Midwest receive more subsidies than all other U.S. regions, and that this effect is likely linked to differences in other analyzed farm characteristics. \vspace{-0.5cm}
+
+## Introduction
+
+\vspace{-0.5cm}
+
+For this project, I chose to study federal agricultural subsidies in the U.S. Subsidies form a critical link between government policy and farm profitability. In order to better understand how subsidies favor or disfavor different types of farms, I asked the research question: How do farm demographic characteristics in a county influence the amount of government subsidies farms in that county receive?
+
+Based on developing research about 'subsidy gaps' between White and Black farmers, I hypothesized that counties with higher proportions of female-owned and minority-owned farms receive lower subsidies (EWG, 2007). I hypothesized that counties with higher proportions of farms with internet access receive higher subsidies, since internet access likely helps farmers access information about subsidy programs. I also hypothesized that counties with higher average farm sizes and higher average farm incomes receive more subsidies, since research has shown that subsidies are biased towards large, conventional farms (Edwards, 2023). I further tested the effects of U.S. region on subsidies, and hypothesized that counties in the Midwest would receive more subsidies than counties in other regions, since the Midwest received much higher total subsidies compared to other US regions between 1995 and 2021 (EWG, 2021). I also expected that subsidies would be targeted towards counties with high proportions of crop-producing farms and especially corn-producing farms (Edwards, 2023). \vspace{-0.5cm}
+
+## Methods
+
+\vspace{-0.5cm}
+
+My dataset for this project is sourced from the 2017 United States Census of Agriculture. This dataset represents all U.S. states except Alaska. Because it is census data, it is likely highly representative of practicing farmers in the U.S., although it may underrepresent farms that are less willing to respond to or are less accessible to census workers. This dataset is also limited by the fact that information is grouped by county. In order to control for county size in this analysis, I standardized all variables by the number of farm operations in a county, and therefore all my analyses predict outcomes for an average farm in a given county.
+
+My response variable is the average federal subsidy amount in \$ that a farm operation receives in a given county ("govsub"). I analyze the categorical variable "region", with regional levels as sourced from U.S. census data: Pacific, Mountain West, Midwest, Northeast, South, and Southeast. I analyze the proportion of crop operations in a county as a categorical variable ("crop_group") alongside region using two-factor ANOVA analysis.
+
+I also predict "govsub" in a multiple linear regression analysis using "region" in addition to 7 quantitative predictors. I analyze the proportion of farm operations in a county that have principal producers that are female or Hispanic ("female_prop" and "hisp_prop"). Unfortunately, principle producer data for other racial minority groups was too sparse to analyze. I also analyze the proportion of operations in a county that have internet access ("internet"), average farm acreage in a county ("farm_acres"), average farm income ("farm_income"), proportion of operations in a county that grow crops ("crop_prop_op"), and the proportion of operations growing crops that grow corn ("corn_prop_crop").
+
+```{r packages, include=FALSE}
+library(mosaic)
+library(car)
+library(httr)
+library(dplyr)
+library(tigris)
+library(GGally)
+library(readr)
+library(janitor)
+library(leaps)
+library(kableExtra)
+library(MASS)
+library(gridExtra)
+library(tidyverse)
+library(glue)
+library(purrr)
+library(rvest)
+library(robotstxt)
+library(hablar)
+library(utils)
+library(states)
+library(tigris)
+library(rcompanion)
+library(multcompView)
+```
+
+```{r setup, include=FALSE}
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+# knitr settings to control how R chunks work.
+require(knitr)
+opts_chunk$set(
+  tidy=FALSE,     # display code as typed
+  size="small"    # slightly smaller font for code
+)
+trellis.par.set(theme=theme.mosaic())  
+options(digits=3)
+
+theme_set(theme_bw())
+options(warn=-1)
+
+opts_chunk$set(echo=FALSE)
+```
+
+\vspace{-0.5cm}
+
+## Results
+
+\vspace{-0.5cm}
+
+The initial combining, and wrangling of the 2017 ag census data set can be found at <https://github.com/evanmacarthur/Stat230Proj1>. I selected variables of interest from this dataset and divided county-wide variables by number of operations in a county. I created the 'region' variable from state name data (Fig. A1). Before completing EDA for each analysis, I removed NAs from my variables of interest. This resulted in a dataset with 2306 counties for my linear regression analysis, and 2813 counties for my ANOVA analysis. Before completing ANOVA EDA, I then also split my crop proportion data into three equally sized groups and designated these groups as "high", "medium", or "low" cropping (Fig. A2).
+
+```{r import, include=FALSE}
+df00<-read_csv("BCdata.csv")
+
+df0 <- df00 |> 
+  clean_names()
+```
+
+```{r calculate variables, include=FALSE}
+df1<-dplyr::rename(df0, "num_operations" = farm_operations_number_of_operations)
+df1 <- df1 %>% 
+  mutate("govsub_prop" = govt_programs_federal_operations_with_receipts/num_operations) %>% 
+  mutate("govsub" = govt_programs_federal_receipts_measured_in/num_operations) %>% 
+  mutate("crop_prop_op" = ag_land_cropland_number_of_operations/num_operations) %>% 
+  mutate("corn_prop_crop" = corn_grain_operations_with_area_harvested/ag_land_cropland_number_of_operations) %>% 
+  mutate("female_prop" = producers_principal_female_number_of_operations/num_operations) %>% 
+  mutate("hisp_prop" = producers_principal_hispanic_number_of_operations/num_operations) %>% 
+  mutate("internet" = internet_access_number_of_operations/num_operations) %>% 
+  mutate("farm_acres" = farm_operations_area_operated_measured_in_acres_operation/num_operations) %>%
+  mutate("farm_income"=income_farm_related_receipts_measured_in/num_operations) 
+
+```
+
+```{r create regional groups, include=FALSE}
+df1$region = df1$state_lower
+df1$region<-as.factor(df1$region)
+
+levels(df1$region) <- list("pacific" = c("washington", "oregon", "california", "hawaii"), 
+                             "mountainwest" = c("montana", "idaho", "wyoming", "nevada", "utah", "colorado", "arizona","new mexico"),
+                             "midwest" = c("north dakota", "south dakota", "nebraska", "kansas", "minnesota", "iowa", "missouri", "wisconsin", "illinois", "michigan", "indiana", "ohio"),
+                             "northeast" = c("maine", "connecticut", "new hampshire", "vermont", "massachusetts", "rhode island", "new york", "new jersey", "pennsylvania"),
+                             "south" = c("texas", "oklahoma", "arkansas", "louisiana", "mississippi", "alabama", "tennessee", "kentucky"),
+                             "southeast" = c("west virginia", "maryland", "delaware", "virginia", "north carolina", "south carolina", "georgia", "florida"))
+```
+
+```{r check NAs, include=FALSE}
+names(which(colSums(is.na(df1))>0))
+```
+
+```{r create dataset of useful variables, include=FALSE}
+df2<-df1 %>% 
+  dplyr::select(c("farm_acres", "govsub":"region"))
+str(df2)
+```
+
+\vspace{-0.5cm}
+
+## Two-factor ANOVA
+
+
+### EDA
+\vspace{-0.5cm}
+
+```{r remove NAs, include=FALSE}
+df3<-df2[!is.na(df2$crop_prop_op),]
+df3<-df3[!is.na(df3$govsub),]
+```
+
+```{r create crop proportion groups for ANOVA, include=FALSE}
+
+df3$crop_group <- as.factor(cut_number(df3$crop_prop_op, n=3))
+str(df3) #cutoffs: [0.0685,0.673], (0.673,0.826], (0.826,0.983]
+
+df3 <- df3 %>% 
+  mutate(crop_group = factor(crop_group,
+                     labels = c("low", "medium", "high")))
+
+str(df3)
+```
+
+```{r boxplots, include=FALSE}
+bxplot <- gf_boxplot(govsub ~ region, fill = ~ crop_group, data = df3, title="Untransformed",
+                      ylab="govsub ($)", xlab="Region")  
+interplot <- gf_point(govsub ~ region, color = ~ crop_group, data = df3, 
+                      group = ~ crop_group, stat = "summary", ylab="govsub (S)", xlab="Region") %>%
+             gf_line(govsub ~ region, color = ~ crop_group, data = df3, 
+                     group = ~ crop_group, stat = "summary") 
+
+bxplot
+interplot
+```
+
+```{r include=FALSE}
+favstats(govsub ~ region + crop_group, data = df3)
+favstats(~govsub, data=df3)
+```
+
+```{r include=FALSE}
+T_tuk =
+     transformTukey(df3$govsub,
+                     plotit=FALSE) #recommends 0.1 power transformation
+
+df3<-df3 %>% 
+  mutate(govsub10=(govsub^(1/10)))
+
+
+df3<-df3 %>% 
+  mutate(govsublog=(log(govsub)))
+
+```
+
+```{r fig.height=2, fig.width=7, include=FALSE}
+gf1<-gf_boxplot(govsub10 ~ region, fill = ~ crop_group, data = df3, 
+                     title = "10th root transformation", ylab="govsub_tenth", xlab="Region")
+
+
+gf2<-gf_boxplot(govsublog ~ region, fill = ~ crop_group, data = df3, title="Log transformation", ylab="govsub_log", xlab="Region")
+
+
+grid.arrange(gf2, ncol = 1)
+```
+
+```{r include=FALSE}
+favstats(govsub10 ~ region + crop_group, data = df3)
+favstats(govsublog ~ region + crop_group, data = df3)
+favstats(~govsub10, data=df3)
+favstats(~govsublog, data=df3)
+```
+
+```{r interactions, include=FALSE}
+interplot2 <- gf_point(govsublog ~ region, color = ~ crop_group, data = df3, 
+                      group = ~ crop_group, stat = "summary", title = "Interaction plot", ylab="govsublog ($)", xlab="Region") %>%
+             gf_line(govsublog ~ region, color = ~ crop_group, data = df3, 
+                     group = ~ crop_group, stat = "summary")
+
+interplot2
+```
+
+For my untransformed data, the normality and equal variance of different groups looked questionable - the largest standard deviation ratio between groups was 48.614 (Fig. A5). I tried a log transformation, and I used the transformTukey function to find the most normalizing power transformation, which turned out to be a tenth root transformation.
+
+I was inclined to use a log transformation, since it did the best job improving equal variance of groups (Fig. A4) (max:min sd ratio = 3.34 for 10th root and = 2.70 for log). However, the 10th root transformation did improve the overall normality of govsub the most (Fig. A3) ((mean, median, IQR) = (5640, 2420, 6431) -\> (2.19, 2.18, 0.509) for 10th root and (7.70, 7.81, 2.34) for log). The 10th root transformation may be more appropriate in my linear regression. 2.70 was still higher than the max:min sd ratio cutoff of 2, and many groups were still not normally distributed and had outliers, so I proceeded with model interpretation with great caution.
+
+It looked like counties classified in higher crop groups received more subsidies, and that there could be some regional differences (Fig. A4). High crop group counties in the Midwest (8.87), Mountainwest (9.95), and South (9.14) had higher medians than in the Southeast (6.15), Northeast (7.22), and Pacific (7.48) (Fig. A5). It also looked like there could be an interaction between region and proportion of operations growing crops. In all regions except the Southeast, counties with higher proportions of crop operations seemed to receive more subsidies. In an interplot (Fig. 1), the slopes of line segments between govsublog \~ region groups differed for each crop group.
+
+\vspace{-0.5cm}
+### Modeling
+\vspace{-0.5cm}
+```{r include=FALSE}
+mod1 <- aov(govsublog ~ crop_group*region, data = df3)
+modlm1 <- lm(govsublog ~ crop_group*region, data = df3)
+
+summary(mod1) #MSE = 1.943
+model.tables(mod1) 
+```
+
+```{r include=FALSE}
+mplot(modlm1, which=1)
+mplot(modlm1, which=2)
+```
+
+I assessed the ANOVA model (govsublog \~ region\*crop_group) (Fig. A6). This model somewhat fit ANOVA conditions, with similar residual variance in all but two groups, slightly left skewed residuals, and a few outliers (Fig. A7). The interaction term was significant (F=7.55, p = 5.6e-12), so I kept this as my final model. Because I had so many levels and interactions, I created letters from my Tukey post-hoc testing results to efficiently compare groups.
+
+I was also curious about the individual effects of region type on govsub, so I ran a quick one factor ANOVA. The conditions for this model looked ok - residuals exhibited equal variance, but deviated from normality at extreme values and had a few outliers (Fig. A7). I found the following significant group differences (Fig. 1):
+
+Midwest \>\> Mountainwest \>\> South \>\> Southeast, Pacific, Northeast
+
+```{r include=FALSE}
+MSE<-5728/2948
+EffectSize<-1.696/sqrt(MSE)
+EffectSize
+```
+
+Farms in counties in the Midwest received significantly higher subsidies than farms in counties in every other region. Most extreme difference: I am 95% confident that average farms in counties in the Midwest received between 3.9325 and 7.5592 times as many subsidies as average farms in counties in the Northeast. The estimated difference between these regions is 5.45 times as many subsidies received in the Midwest than the Northeast, an effect that is 22% larger than typical county to county variation.
+
+When I added interactive effects of crop proportion, these differences became more complicated (Fig. 1). For the high crop group, average farms in the Midwest and Mountainwest received significantly more subsidies than average farms in the Northeast and Southeast; average farms in the Pacific and South were not significantly different from either group. For the medium crop group, average farms in the Midwest received significantly more subsidies than farms in all other regional groups. Average farms in the Northeast received significantly lower subsidies than all other groups. For the low crop group, average farms in the Mountainwest received significantly more subsidies than average farms in the Northeast and Pacific, otherwise there were few significant differences between groups.
+
+The effect of crop proportion differed substantially by region (Fig. 1). In the Midwest, average farms in higher crop group counties received significantly more subsidies. In the Mountainwest, average farms in high crop group counties received significantly more subsidies than medium and low crop group counties. The Northeast and Pacific showed no significant differences between crop groups. In the South, average farms in higher crop group counties received significantly more subsidies. In the Southeast, average farms in medium crop_group counties received significantly higher subsidies than high and low crop group counties.
+
+```{r include-FALSE}
+tukeyresult<-TukeyHSD(mod1)
+```
+
+```{r include=FALSE}
+#Calculate letters to make tukey results more interpretable
+Letters<-multcompLetters4(mod1, TukeyHSD(mod1))
+Letters
+```
+
+```{r include=FALSE}
+summ<-favstats(govsublog ~ crop_group:region, data=df3)
+summ<-summ %>% 
+  dplyr::select(c("crop_group:region", "mean")) 
+summ
+  
+
+tukey.cld <- as.data.frame.list(Letters$`crop_group:region`)
+
+tukey.cld$Levels <- rownames(tukey.cld) ; rownames(tukey.cld) <- NULL
+tukey.cld <- dplyr::select(tukey.cld,Levels,Letters)
+tukey.cld <- dplyr::rename(tukey.cld, "crop_group:region"="Levels")
+
+lettersumm <- full_join(summ, tukey.cld, by="crop_group:region")
+
+lettersumm <- separate(lettersumm, col = "crop_group:region", into = 
+c("crop_group","region"), sep = ":",remove = T)
+```
+
+```{r include=FALSE}
+mod2 <- aov(govsublog ~ region, data = df3)
+summary(mod2) #MSE = 2.1187
+modlm2 <- lm(govsublog ~ region, data = df3)
+```
+
+
+```{r include=FALSE}
+TukeyHSD(mod2)
+
+#Midwest-Northeast effect size
+-1.696/sqrt(2.1187)
+exp(1.696)
+
+
+Letters2<-multcompLetters4(mod2, TukeyHSD(mod2))
+```
+
+```{r include=FALSE}
+summ1<-favstats(govsublog ~ region, data=df3)
+summ1<-summ1 %>% 
+  dplyr::select(c("region", "mean")) 
+summ1
+  
+
+tukey.reg <- as.data.frame.list(Letters2$`region`)
+
+tukey.reg$Levels <- rownames(tukey.reg) ; rownames(tukey.reg) <- NULL
+tukey.reg <- dplyr::select(tukey.reg,Levels,Letters)
+tukey.reg <- dplyr::rename(tukey.reg, "region"="Levels")
+
+lettersumm1 <- full_join(summ1, tukey.reg, by="region")
+```
+
+```{r include=FALSE}
+#fit letters to interaction plot
+region <-ggplot(lettersumm1, aes(x=region, y=mean, group=1)) +
+          geom_line() +
+          geom_point() +
+          geom_text(data=lettersumm1
+                    , aes(y=mean, label=Letters)
+                    , position = position_dodge(1), size = 4 
+                    , vjust= +0.5, hjust= -0.5
+                    , colour = "gray25"
+                    , fontface = "bold")+
+          labs(x="Region", y="govsub_log") 
+```
+
+```{r, fig.height=4, fig.weidth=5}
+
+int<-ggplot(lettersumm, aes(x=`region`, y=`mean`, colour=`crop_group`)) +
+          geom_point(data=lettersumm, aes(y=mean)) +
+          geom_line(data=lettersumm, aes(y=mean, group=crop_group)) +
+          geom_text(data=lettersumm
+                    , aes(y=mean, label=Letters)
+                    , position = position_dodge(0.90), size = 3.5 
+                    , vjust= 0.0, hjust= -0.2
+                    , colour = "gray25"
+                    , fontface = "bold")+
+          labs(x="Region", y="govsub_log") 
+
+grid.arrange(region, int, ncol=1)
+```
+\textbf{Figure 1. Group differences for one-factor (top) and two factor (bottom) ANOVA models predicting log(government subsidies). Significantly different groups have non-overlapping letters.}
+
+
+\vspace{-0.5cm}
+
+## Linear regression
+
+### EDA
+
+\vspace{-0.5cm}
+
+```{r include=FALSE}
+df4<-na.omit(df3)
+```
+
+```{r include=FALSE}
+pt1 <- gf_point(data = df4, govsub ~ internet) |> 
+  gf_lm()
+pt2 <- gf_point(data = df4, govsub ~ crop_prop_op) |> 
+  gf_lm()
+pt3 <- gf_point(data = df4, govsub ~ corn_prop_crop) |> 
+  gf_lm()
+pt4 <- gf_point(data = df4, govsub ~ female_prop) |> 
+  gf_lm()
+pt5 <- gf_point(data = df4, govsub ~ hisp_prop) |> 
+  gf_lm()
+pt6 <- gf_point(data = df4, govsub ~ farm_income) |> 
+  gf_lm()
+pt7 <- gf_point(data = df4, govsub ~ farm_acres) |> 
+  gf_lm()
+
+grid.arrange(pt1,pt2,pt3,pt4,pt5,arrangeGrob(pt6, pt7), ncol = 3 )
+```
+
+For my linear regression, I decided to analyze cropping proportion as a quantitative variable instead of using the categorical variable I created for the ANOVA analysis, since I expected that this would make it a much stronger predictor. In initial scatterplots, predictor-response relationships all looked questionably linear (Fig. A8). Since a 10th root transformation was most helpful for normalizing govsub in my ANOVA analysis, I tried it here as well. I did notice that this transformation made the distribution of govsub slightly bimodal, however (Fig. A3), so I was careful to check linearity of predictor relationships.
+
+```{r include=FALSE}
+ps1 <- gf_point(data = df4, govsub10 ~ internet) |> 
+  gf_lm()
+ps2 <- gf_point(data = df4, govsub10 ~ crop_prop_op) |> 
+  gf_lm()
+ps3 <- gf_point(data = df4, govsub10 ~ corn_prop_crop) |> 
+  gf_lm()
+ps4 <- gf_point(data = df4, govsub10 ~ female_prop) |> 
+  gf_lm()
+ps5 <- gf_point(data = df4, govsub10 ~ hisp_prop) |> 
+  gf_lm()
+ps6 <- gf_point(data = df4, govsub10 ~ farm_income) |> 
+  gf_lm()
+ps7 <- gf_point(data = df4, govsub10 ~ farm_acres) |> 
+  gf_lm()
+
+grid.arrange(ps1,ps2,ps3,ps4,ps5,arrangeGrob(ps6, ps7),ncol = 3 )
+```
+
+In addition to normalizing govsub, as described above, the 10th root transformation did a good job improving linearity of govsub \~ predictor relationships, although farm_income, farm_acres, and hisp_prop were still very right skewed. corn_prop_crop also looked right skewed and questionably linear. I transformed these variables to further improve linearity. I expected that log transformations would be very helpful for farm_income and farm_acres since they looked highly right skewed, but I tried both log and square root transformations for hisp_prop and corn_prop_crop since they were proportional data.
+
+```{r include=FALSE}
+df4<-df4 %>% 
+  mutate(farm_income_log=log(farm_income)) %>% 
+  mutate(farm_acres_log=log(farm_acres)) %>% 
+  mutate(hisp_prop_sqrt=sqrt(hisp_prop)) %>% 
+  mutate(hisp_prop_log=log(hisp_prop)) %>% 
+  mutate(corn_prop_crop_sqrt=(corn_prop_crop)^(1/2)) %>% 
+  mutate(corn_prop_crop_log=log(corn_prop_crop))
+ 
+
+
+favstats(~farm_income, data=df4)
+favstats(~farm_income_log, data=df4)
+
+
+favstats(~farm_acres, data=df4)
+favstats(~farm_acres_log, data=df4)
+
+favstats(~hisp_prop, data=df4)
+favstats(~hisp_prop_sqrt, data=df4)
+favstats(~hisp_prop_log, data=df4)
+
+favstats(~corn_prop_crop, data=df4)
+favstats(~corn_prop_crop_sqrt, data=df4)
+favstats(~corn_prop_crop_log, data=df4)
+```
+
+```{r include=FALSE}
+p1<-gf_histogram(data = df4, ~ farm_income)
+p2<-gf_histogram(data = df4, ~ farm_income_log)
+p3<-gf_histogram(data = df4, ~ farm_acres)
+p4<-gf_histogram(data = df4, ~ farm_acres_log)
+p5<-gf_histogram(data = df4, ~ hisp_prop)
+p6<-gf_histogram(data = df4, ~ hisp_prop_sqrt)
+p7<-gf_histogram(data = df4, ~ hisp_prop_log)
+p8<-gf_histogram(data = df4, ~ corn_prop_crop)
+p9<-gf_histogram(data = df4, ~ corn_prop_crop_sqrt)
+p10<-gf_histogram(data = df4, ~ corn_prop_crop_log)
+
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10, ncol = 3 )
+```
+
+Log transformations greatly improved the normality of farm_income, (mean, median, IQR = (5963169, 3794000, 5768000)-\>(15.088, 15.149, 1.432)) farm_acres, (mean, median, IQR = (635.05, 271, 375)-\>(5.7895, 5.6021, 1.1962)) and hisp_prop (mean, median, IQR = (0.034566, 0.014403, 0.022885)-\>(-4.1802,-4.2403, 1.4461)). Corn_prop_crop was a bit normalized by a square root transformation (mean, median, IQR = (0.17396, 0.076923, 0.28318)-\>(0.3313, 0.27735, 0.42993)), although it notably looked right skewed and bimodal (Fig. 2).
+
+```{r, fig.height=3, include=FALSE}
+pf1 <- gf_point(data = df4, govsub10 ~ internet) |> 
+  gf_lm()
+pf2 <- gf_point(data = df4, govsub10 ~ crop_prop_op) |> 
+  gf_lm()
+pf3 <- gf_point(data = df4, govsub10 ~ corn_prop_crop_sqrt) |> 
+  gf_lm()
+pf4 <- gf_point(data = df4, govsub10 ~ female_prop) |> 
+  gf_lm()
+pf5 <- gf_point(data = df4, govsub10 ~ hisp_prop_log) |> 
+  gf_lm()
+pf6 <- gf_point(data = df4, govsub10 ~ farm_income_log) |> 
+  gf_lm()
+pf7 <- gf_point(data = df4, govsub10 ~ farm_acres_log) |> 
+  gf_lm()
+
+grid.arrange(pf1,pf2,pf3,pf4,pf5,arrangeGrob(pf6, pf7),ncol = 3 )
+```
+
+```{r message=FALSE, fig.width=8}
+df4g<-df4 %>% 
+  dplyr::select(govsub10, internet, crop_prop_op, corn_prop_crop_sqrt, female_prop, hisp_prop_log, farm_income_log, farm_acres_log)
+ 
+ggpairs(df4g, warning=FALSE)
+```
+
+\textbf{Figure 2. Scatterplots and correlations for relationships between all quantitative predictor and response variables}
+
+Although the transformation of corn_prop_crop was a bit questionable, the relationship between govsub and sqrt(corn_prop_crop) looked much more linear (Fig. A8). Every other predictor looked like they had fairly linear relationships with govsub (Fig.2, Fig. A8). After transforming my variables, all correlations between predictors and govsub were significant (Fig. 2). Internet, crop_prop_op, sqrt(corn_prop_prop), log(farm_income), and log(farm_area) were positively correlated with $govsub^{0.1}$, and female_prop and log(hisp_prop) were negatively correlated with $govsub^{0.1}$ (Fig. 2). I felt confident that these were interesting and appropriately-fitting predictors, so I proceeded with model selection with these transformed variables.
+
+### Modeling
+\vspace{-0.5cm}
+
+```{r include=FALSE}
+lm1<-lm(govsub10 ~ region + crop_prop_op + corn_prop_crop_sqrt + farm_income_log + farm_acres_log + female_prop + hisp_prop_log + internet, data=df4)
+mplot(lm1, which=1)
+mplot(lm1, which=2)
+gf_dhistogram(~ residuals(lm1))
+```
+
+I started by assessing conditions of a basic model containing all of my variables of interest (model 1) (Fig. A10). The residuals were slightly heteroscedastic, with decreased variance at higher fitted values. They also deviated from normality, appearing slightly left skewed. Both plots showed a few outliers with low residual values. I was not majorly concerned about these residuals, so I proceeded with model selection and interpretation.
+
+Before comparing different models, I also assessed collinearity between predictors. A lot of predictors were pretty highly (r=0.2-0.64) correlated with each other (Fig. 2). Corn_prop_crop had the highest correlations with other variables. However, VIF scores for all predictors were below 2 (Fig. A9), indicating that no problematic multicollinearity was present. I assumed that my model coefficients accurately took into account the effects of other predictors and that multicollinearity did not give me a reason to remove any predictors.
+
+```{r include=FALSE}
+vif(lm1)
+```
+
+```{r include=FALSE}
+df6<-df4 %>% 
+  dplyr::select(govsub10, farm_income_log, farm_acres_log, internet, female_prop, hisp_prop_log, crop_prop_op, corn_prop_crop_sqrt)
+
+corr<-cor(df6)
+as.data.frame(corr)
+```
+
+\vspace{-0.5cm}
+#### Model Selection
+
+```{r include=FALSE}
+mod.small <- lm(govsub10 ~ 1, data = df4)
+mod.all <- lm(govsub10 ~ region + crop_prop_op + corn_prop_crop_sqrt + farm_income_log + farm_acres_log + female_prop + hisp_prop_log + internet, data=df4)
+stepAIC(mod.small, scope = list(lower = mod.small, upper = mod.all),  
+        direction = "both", trace = FALSE)$anova
+stepAIC(mod.all, direction = "backward", trace = FALSE)$anova
+```
+
+Best subsets selection could not handle the region variable (split it into 6 variables, but only showed up to 8 subsets), so I performed automated variable selection using stepwise and backwards regression. Both stepwise and backwards regression supported keeping all predictors except hisp_prop. This model (model 2) had the lowest AIC value, -7958.5. However, since the model with hisp_prop (model 1) had a very similar AIC value, -7957.5, I double checked the potential significance of this predictor before dropping it.
+
+```{r include=FALSE}
+msummary(lm1)
+
+lm2<-lm(govsub10~region + crop_prop_op + corn_prop_crop_sqrt + farm_income_log + farm_acres_log + female_prop + internet, data=df4)
+anova(lm1, lm2)
+```
+
+The coefficient for the hisp_prop predictor was insignificant (t=-1.00, p=0.318), which was supported by insignificant nested F test results between the model 1 and model 2 (F=1, p=0.32). Furthermore, hisp_prop did not improve model strength (adj $R^2$ = 0.705 for both). Conditions looked about the same for both models (Fig. A10). I saw no reason to include hisp_prop, and therefore removed it to simplify my model.
+
+\vspace{-0.5cm}
+#### Interactions
+
+```{r include=FALSE}
+lm3<-lm(govsub10 ~ region + crop_prop_op + corn_prop_crop_sqrt + farm_income_log + farm_acres_log + female_prop + internet +  region:crop_prop_op, data=df4)
+msummary(lm3)
+msummary(lm2)
+p1<-mplot(lm3, which=1)
+p2<-mplot(lm3, which=2)
+p3<-mplot(lm2, which=1)
+p4<-mplot(lm2, which=2)
+
+grid.arrange(p1, p2, p3, p4, ncol=2)
+```
+
+Because I saw a significant interaction between region and crop_prop_op in my ANOVA analysis, I was inclined to test out regional interactions in my linear regression as well. After adding the interaction (model 3), Adj $R^2$ increased from 0.705 to 0.707; RSE decreased from 0.178 to 0.177. Interactions between crop_prop_op and regionmidwest (p=0.033), regionnortheast (p=0.048), and regionsoutheast (p=0.028) were significant. Residuals and conditions looked similar (Fig. A10). As discussed below, model 3 had many more influential points, which was concerning. Because of this, and because the interaction did not substantially improve model strength, I chose not to include it.
+
+```{r include=FALSE}
+p1<-mplot(lm3, which=4)
+p2<-mplot(lm3, which=5)
+p3<-mplot(lm3, which=6)
+
+p4<-mplot(lm2, which=4)
+p5<-mplot(lm2, which=5)
+p6<-mplot(lm2, which=6)
+```
+
+```{r include=FALSE}
+grid.arrange(p4, p5, p1, p2, ncol=2)
+```
+
+\vspace{-0.5cm}
+#### Outliers and influential points
+
+Model 3 had more issues with potentially influential points than model 2 (Fig. A11). Although all Cook's Distance values for both models were below 0.5, model 3 had 9 points above 0.015, whereas model 2 only had 4 points. Potential influence of high leverage points can be seen in the standardized residual vs leverage plots in Fig. A11, which have an upwards sloping best fit line in model 3 and a generally flat best fit line in model 2. Both models had similar numbers of concerning outliers: model 3 had 17 points with \|standardized residuals\| \> 3 and model 2 had 16 points. I chose not to remove these points because I was not overly concerned about their influence on the model.
+
+```{r include=FALSE}
+leverage <- hatvalues(lm3) 
+high_leverage <- which(leverage >0.014744)
+length(high_leverage)
+high_leverage
+problematic_leverage <- which(leverage > 0.022116)
+length(problematic_leverage)
+problematic_leverage
+```
+
+```{r include=FALSE}
+leverage <- hatvalues(lm2) 
+high_leverage <- which(leverage >0.0095403)
+length(high_leverage)
+high_leverage
+problematic_leverage <- which(leverage > 0.01431)
+length(problematic_leverage)
+problematic_leverage
+```
+
+```{r include=FALSE}
+stdresiduals <- rstandard(lm3)
+bad_outlier <- which (abs(stdresiduals) > 2)
+length(bad_outlier)
+really_bad_outlier <- which(abs(stdresiduals) > 3)
+length(really_bad_outlier)
+```
+
+```{r include=FALSE}
+stdresiduals <- rstandard(lm2)
+bad_outlier <- which (abs(stdresiduals) > 2)
+length(bad_outlier)
+really_bad_outlier <- which(abs(stdresiduals) > 3)
+length(really_bad_outlier)
+```
+
+```{r include=FALSE}
+cdistance <- cooks.distance(lm3)
+influential <- which(cdistance > 0.015)
+length(influential)
+```
+
+```{r include=FALSE}
+cdistance <- cooks.distance(lm2)
+influential <- which(cdistance > 0.015)
+length(influential)
+```
+
+\vspace{-0.5cm}
+#### Final model
+
+```{r include=FALSE}
+msummary(lm2)
+```
+
+$\widehat{govsub^{0.1}} =  1.100 + 0.007(regionmountainwest) - 0.054(regionmidwest)  + 0.076(regionsouth) - 0.085(regionsoutheast) + 0.210(crop\_prop\_op) + 0.370(corn\_prop\_crop\_sqrt) + 0.134(farm\_income\_log) + 0.089(farm\_acres\_log) - 0.290(female\_prop) - 0.224(internet)$
+
+My final linear regression model was model 2, which included all of my chosen predictors except the proportion of farmers in a county that are hispanic and had no interaction terms. All predictors in my model, except regionMountainwest, were significant (Fig. A12). I chose not to remove this region level by combining it with the baseline level, since this would affect how all other levels differed from the baseline. Overall, this model was significant (F=502, p\<2e-16) and explained 70.5% of the variation in $govsub)^{0.1}$.
+
+## Interpretation of models
+\vspace{-0.5cm}
+
+```{r include=FALSE}
+0.13356 * log(1.1)
+0.08919 * log(1.1)
+```
+
+Interpretation of both of my models was constrained by deviation from parametric conditions for ANOVA and linear regression. I do not have to worry about random selection of my data, since it was collected as a census. However, this data almost certainly violates independence, since farm demographic variables in one county likely influence surrounding counties. Data for my ANOVA model also did not exhibit sufficient equal variance between groups, and residuals for both models exhibited mild left skew.
+
+Interestingly, after including the additional predictors in my linear model, differences in government subsidies received by region changed substantially compared to my ANOVA analysis. My one-factor ANOVA results indicated that regions received significantly different subsidies, from highest to lowest, in the order:
+
+Midwest \>\> Mountainwest \>\> South \>\> Southeast, Pacific, Northeast
+
+My linear regression, on the other hand, suggested the following order:
+
+South \> Mountainwest \>\> Pacific \>\> Midwest \> Southeast \> Northeast
+
+where all regions except Mountainwest significantly differed from Pacific in the given direction. The greatest change was that the effect of being in the Midwest changed from significantly increasing subsidies relative to all other regions to significantly decreasing subsidies relative to the South, Mountainwest, and Pacific when all other chosen factors were controlled. This could mean that the Midwest has different characteristics related to other factors in my model (farm size, farm income, farm crop choice, gender of farm owner, internet access) that cause it to receive more subsidies than other regions.
+
+Although internet access was slightly positively correlated with government subsidies (r=0.074), when all chosen factors were controlled, it showed a significantly negative effect on subsidies. For every 0.1 increase in the proportion of farms with internet access in a county, average (10th root of) government subsidy \$ received by farms was predicted to decrease by 0.0224. Counties with low internet access may tend to have characteristics related to farm size, income, cropping proportion, etc that decrease subsidies received. Although it was negatively correlated with government subsidies (r=-0.157), the proportion of farms in a county owned by Hispanic producers was not significantly associated with average government subsidies received in that county after controlling for other predictor effects.
+
+All other variables retained the same directional relationships with govsub in the final model as in raw correlations. As in my ANOVA analysis, average farms in counties with a greater share of farms growing crops were predicted to receive more subsidies, even when all other predictors were held constant. For every 0.1 increase in crop proportion, average (10th root of) government subsidy \$ received by farms was predicted to increase by 0.0210. Similarly, average farms in counties with a greater share of farms growing corn (0.37 increase in $govsub^{0.1}$ for every 0.1 increase in sqrt(corn proportion)), larger farms (0.0085 increase in $govsub^{0.1}$ for every 10% increase in average farm size in acres), and farms making more income (0.013 increase in $govsub^{0.1}$ for every 10% increase in average farm income in \$) were predicted to receive significantly more government subsidies with all other predictors held constant. Counties with a greater share of farms owned by a female producers were predicted to receive significantly less government subsidies, holding all other predictors constant (0.029 decrease in $govsub^{0.1}$ for every 0.1 increase in the proportion of farms in a county owned by female producers).
+
+## Conclusions
+\vspace{-0.5cm}
+
+My results supported most of my hypotheses. I did not find support for the hypothesis that goverment subsidies disfavored counties with more Hispanic farmers, but my results did support the hypothesis that subsidies disfavored counties with more female producers, even after accounting for farm size, income, crop-growing, corn-growing, region, and internet access. Contrary to my internet access hypothesis, my linear regression model indicated that farms with more internet access receive fewer subsidies. Since the raw correlation between internet access and subsidies was positive, this result only makes sense in the context of controlling for the effects of my other variables. My results supported my hypotheses that counties with more crop producers, corn producers, and higher average farm size and income received more subsidies. My results somewhat supported my hypothesis that the Midwest would receive more subsidies than all other U.S. regions. Midwestern counties received greater subsidies than all other regions in my one-factor ANOVA model, but received low relative subsidies after accounting for farm size, income, crop-growing, corn-growing, female farm management, and internet access.
+
+These results were limited by my county-scale analysis, and do not necessarily reflect outcomes for individual farms. Furthermore, my ANOVA analysis violated parametric statistical conditions, and would be better studied using nonparametric methods. Future analyses could address these concerns and could also focus on variables I was not able to find workable data for, such as organic farming practices and farm ownership by other minority groups.
+
+## References
+\vspace{-0.5cm}
+EWG, 2021: <https://farm.ewg.org/progdetail.php?fips=00000&progcode=total&page=states>
+
+EWG, 2007: <https://www.ewg.org/research/short-crop>
+
+Edwards, 2023: <https://www.cato.org/briefing-paper/cutting-federal-farm-subsidies>
+
+U.S. Census of Agriculture: <https://www.nass.usda.gov/AgCensus/>
+
+U.S. Census Regions: <https://www2.census.gov/geo/pdfs/maps-data/maps/reference/us_regdiv.pdf>
+
+Sample code for Tukey post-hoc letters: <https://stackoverflow.com/questions/75816862/how-do-i-add-tukeyhsd-results-from-multcompletters-function-to-an-interaction-pl>
+
+\newpage
+
+## Appendices
+
+```{r echo=TRUE}
+df1$region = df1$state_lower
+df1$region<-as.factor(df1$region)
+
+levels(df1$region) <- list("pacific" = c("washington", "oregon", "california", "hawaii"), 
+                             "mountainwest" = c("montana", "idaho", "wyoming", "nevada", 
+                                                "utah", "colorado", "arizona",
+                                                "new mexico"),
+                             "midwest" = c("north dakota", "south dakota", "nebraska", 
+                                           "kansas", "minnesota", "iowa", "missouri", 
+                                           "wisconsin", "illinois", "michigan", "indiana", 
+                                           "ohio"),
+                             "northeast" = c("maine", "connecticut", "new hampshire", 
+                                             "vermont", "massachusetts", "rhode island", 
+                                             "new york", "new jersey", "pennsylvania"),
+                             "south" = c("texas", "oklahoma", "arkansas", "louisiana", 
+                                         "mississippi", "alabama", "tennessee", 
+                                         "kentucky"),
+                             "southeast" = c("west virginia", "maryland", "delaware", 
+                                             "virginia", "north carolina", 
+                                             "south carolina", "georgia", "florida"))
+```
+\textbf{Figure A1. Creation of regional groups from state names.}
+\vspace{0.5cm}
+
+
+```{r echo=TRUE}
+df3$crop_group <- as.factor(cut_number(df3$crop_prop_op, n=3))
+#cutoffs: [0.0685,0.673], (0.673,0.826], (0.826,0.983]
+
+df3 <- df3 %>% 
+  mutate(crop_group = factor(crop_group,
+                     labels = c("low", "medium", "high")))
+```
+\textbf{Figure A2. Creation of crop group categorical variable.}
+\vspace{0.5cm}
+
+
+
+
+```{r fig.height=1.5, fig.width=6}
+p1<-gf_histogram(data=df3, ~govsub, xlab="govsub")
+p2<-gf_histogram(data=df3, ~govsub10, xlab="govsub10root")
+p3<-gf_histogram(data=df3, ~govsublog, xlab="govsublog")
+
+grid.arrange(p1, p2, p3, ncol=3)
+```
+
+\textbf{Figure A3. Distributions of untransformed, 10th root transformed, and log transformed government farm subsidy data.}
+\vspace{0.5cm}
+
+```{r, fig.height=4, fig.width=7}
+grid.arrange(bxplot, gf2, ncol=1)
+```
+\textbf{Figure A4. Boxplots showing differences in untransformed and log transformed government farm subsidies by region and crop proportion.}
+\vspace{0.5cm}
+
+```{r}
+favstats(govsublog ~ region + crop_group, data=df3) %>% 
+    kable(booktabs = TRUE, align = 'c', caption = "Summary of log transformed government farm subsidies") |> 
+    kable_styling(latex_options = c("hold_position", "scale_down"))
+```
+\textbf{Figure A5. Numerical summary of log(government farm subsidies) for each region x crop proportion group.}
+\vspace{0.5cm}
+
+
+```{r}
+summary(mod1) #MSE = 1.943
+```
+\textbf{Figure A6. Summary of two-way non-additive ANOVA model predicting log(government farm subsidies).}
+\vspace{0.5cm}
+
+```{r include=FALSE}
+p1<-mplot(modlm1, which=1)
+p2<-mplot(modlm1, which=2)
+p3<-gf_dhistogram(~ residuals(modlm1))
+
+p4<-mplot(modlm2, which=1)
+p5<-mplot(modlm2, which=2)
+p6<-gf_dhistogram(~ residuals(modlm2))
+
+```
+
+```{r fig.height=4, fig.width=8}
+grid.arrange(p1, p2, p3, p4, p5, p6, ncol=3)
+```
+
+\textbf{Figure A7. Residual diagnostics for two-way non-additive ANOVA model (top) and one-way ANOVA model (bottom) predicting log(government farm subsidies) by crop proportion and region (top) and region (bottom).}
+\vspace{0.5cm}
+
+```{r include=FALSE}
+pt1 <- gf_point(data = df4, govsub ~ internet) |> 
+  gf_lm()
+pt2 <- gf_point(data = df4, govsub ~ crop_prop_op) |> 
+  gf_lm()
+pt3 <- gf_point(data = df4, govsub ~ corn_prop_crop) |> 
+  gf_lm()
+pt4 <- gf_point(data = df4, govsub ~ female_prop) |> 
+  gf_lm()
+pt5 <- gf_point(data = df4, govsub ~ hisp_prop) |> 
+  gf_lm()
+pt6 <- gf_point(data = df4, govsub ~ farm_income) |> 
+  gf_lm()
+pt7 <- gf_point(data = df4, govsub ~ farm_acres) |> 
+  gf_lm()
+
+grid.arrange(pt1,pt2,pt3,pt4,pt5,arrangeGrob(pt6, pt7), ncol = 3 )
+```
+
+
+
+
+```{r fig.height=5, fig.width=7}
+pf1 <- gf_point(data = df4, govsub10 ~ internet) |> 
+  gf_lm()
+pf2 <- gf_point(data = df4, govsub10 ~ crop_prop_op) |> 
+  gf_lm()
+pf3 <- gf_point(data = df4, govsub10 ~ corn_prop_crop_sqrt) |> 
+  gf_lm()
+pf4 <- gf_point(data = df4, govsub10 ~ female_prop) |> 
+  gf_lm()
+pf5 <- gf_point(data = df4, govsub10 ~ hisp_prop_log) |> 
+  gf_lm()
+pf6 <- gf_point(data = df4, govsub10 ~ farm_income_log) |> 
+  gf_lm()
+pf7 <- gf_point(data = df4, govsub10 ~ farm_acres_log) |> 
+  gf_lm()
+
+grid.arrange(pt1,pt2,pt3,pt4,pt5,arrangeGrob(pt6, pt7), pf1,pf2,pf3,pf4,pf5,arrangeGrob(pf6, pf7), ncol = 3 )
+```
+
+\textbf{Figure A8. Relationships between untransformed (top) or 10th root transformed government farm subsidies (bottom) and transformed predictors. Linear regression lines shown in blue.}
+\vspace{0.5cm}
+
+
+
+```{r}
+vif(lm1)
+```
+\textbf{Figure A9. Non-adjusted and adjusted VIF scores for all linear regression predictors.}
+\vspace{0.5cm}
+
+```{r include=FALSE}
+p1<-mplot(lm1, which=1)
+p2<-mplot(lm1, which=2)
+p3<-gf_dhistogram(~ residuals(lm1))
+
+p4<-mplot(lm2, which=1)
+p5<-mplot(lm2, which=2)
+p6<-gf_dhistogram(~ residuals(lm2))
+
+p7<-mplot(lm3, which=1)
+p8<-mplot(lm3, which=2)
+p9<-gf_dhistogram(~ residuals(lm3))
+```
+
+```{r fig.height=5}
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, ncol=3)
+```
+\textbf{Figure A10. Residual diagnostics for model 1 (top), model 2 (middle), model 3 (bottom)}
+\vspace{0.5cm}
+
+```{r include=FALSE}
+p1<-mplot(lm3, which=4)
+p2<-mplot(lm3, which=5)
+p3<-mplot(lm3, which=6)
+
+p4<-mplot(lm2, which=4)
+p5<-mplot(lm2, which=5)
+p6<-mplot(lm2, which=6)
+```
+
+```{r fig.height=4, fig.width=6}
+grid.arrange(p4, p5, p1, p2, ncol=2)
+```
+
+\textbf{Figure A11. Cook's distance values and standardized residual vs leverage values for model 2 (top) and model 3 (bottom)}
+\vspace{0.5cm}
+
+```{r}
+msummary(lm2)
+```
+\textbf{Figure A12. Summary of final linear regression model.}
+
+
+
+
+
+Anova(model)
